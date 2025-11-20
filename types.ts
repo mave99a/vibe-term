@@ -1,5 +1,6 @@
 
 import React from 'react';
+import { FileSystemType } from './services/fileSystem/VirtualFileSystem';
 
 export enum MessageType {
   COMMAND = 'COMMAND',
@@ -13,6 +14,7 @@ export interface TerminalMessage {
   type: MessageType;
   content: React.ReactNode;
   timestamp: number;
+  cwd?: string; // Snapshot of current directory when message was created
 }
 
 export interface CommandResult {
@@ -23,6 +25,7 @@ export interface CommandResult {
 
 export interface CommandContext {
   registry: CommandRegistry;
+  fileSystem: FileSystemType;
 }
 
 export type CommandHandler = (args: string[], context: CommandContext) => Promise<CommandResult> | CommandResult;

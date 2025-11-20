@@ -1,5 +1,7 @@
+
 import { MessageType, CommandResult } from '../types';
 import { registry } from '../commands/index';
+import { fileSystem } from './fileSystem/VirtualFileSystem';
 
 export const processCommand = async (input: string): Promise<CommandResult> => {
   const trimmed = input.trim();
@@ -17,7 +19,7 @@ export const processCommand = async (input: string): Promise<CommandResult> => {
   }
 
   try {
-    return await command.handler(args, { registry });
+    return await command.handler(args, { registry, fileSystem });
   } catch (error) {
     return {
       output: `Error executing command: ${error instanceof Error ? error.message : 'Unknown error'}`,

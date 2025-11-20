@@ -4,6 +4,7 @@ import { TerminalMessage, MessageType, CommandResult } from '../types';
 import { INITIAL_WELCOME_MESSAGE, PROMPT_HOST, PROMPT_USER, PROMPT_SYMBOL, STORAGE_KEY_MOTD } from '../constants';
 import { TerminalOutput } from './TerminalOutput';
 import { processCommand } from '../services/commandService';
+import { fileSystem } from '../services/fileSystem/VirtualFileSystem';
 
 export const Terminal: React.FC = () => {
   const [history, setHistory] = useState<TerminalMessage[]>(() => {
@@ -14,6 +15,7 @@ export const Terminal: React.FC = () => {
       type: MessageType.SYSTEM,
       content: storedMotd || INITIAL_WELCOME_MESSAGE,
       timestamp: Date.now(),
+      cwd: fileSystem.getCwd(),
     }];
   });
   
@@ -21,6 +23,8 @@ export const Terminal: React.FC = () => {
   const [commandHistory, setCommandHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [isProcessing, setIsProcessing] = useState(false);
+  // Local state to force re-render when file system changes (like cd)
+  const [currentPath, setCurrentPath] = useState(fileSystem.getCwd());
   
   // Holds the continuation function for interactive commands
   const [activeCommand, setActiveCommand] = useState<((input: string) => Promise<CommandResult> | CommandResult) | null>(null);
@@ -49,12 +53,16 @@ export const Terminal: React.FC = () => {
     if (e.key === 'Enter' && !isProcessing) {
       const cmd = input.trim();
       
+      // Snapshot current path BEFORE execution for the command log
+      const pathAtCommand = fileSystem.getCwd();
+
       // Add user input to UI history
       const commandMessage: TerminalMessage = {
         id: Date.now().toString() + '-cmd',
         type: MessageType.COMMAND,
         content: input, // Preserve exact input (spaces, etc)
         timestamp: Date.now(),
+        cwd: pathAtCommand,
       };
 
       setHistory((prev) => [...prev, commandMessage]);
@@ -66,7 +74,6 @@ export const Terminal: React.FC = () => {
         
         // Special case for clear command, ONLY if not in interactive mode
         if (!activeCommand && cmd.toLowerCase() === 'clear') {
-            // Slight delay to show the command was typed before clearing
             setTimeout(() => {
                 setHistory([]);
             }, 100);
@@ -76,16 +83,13 @@ export const Terminal: React.FC = () => {
         setIsProcessing(true);
         
         try {
-          // Simulate processing delay for realism
           await new Promise(resolve => setTimeout(resolve, 50)); 
           
           let result: CommandResult;
 
           if (activeCommand) {
-            // If we are in interactive mode, pass input to the active handler
             result = await activeCommand(input);
           } else {
-            // Otherwise, process as a standard command
             result = await processCommand(cmd);
           }
           
@@ -94,19 +98,19 @@ export const Terminal: React.FC = () => {
             type: result.type || MessageType.OUTPUT,
             content: result.output,
             timestamp: Date.now(),
+            cwd: fileSystem.getCwd(), // Not strictly necessary for output but good for consistency
           };
 
           setHistory((prev) => [...prev, responseMessage]);
           
-          // Update the active command state based on the result
           if (result.nextAction) {
-            // The command wants more input
-            const nextAction = result.nextAction;
-            setActiveCommand(() => nextAction);
+            setActiveCommand(() => result.nextAction);
           } else {
-            // The command chain is finished
             setActiveCommand(null);
           }
+          
+          // Update current path state for the input prompt
+          setCurrentPath(fileSystem.getCwd());
 
         } catch (error) {
           setHistory((prev) => [...prev, {
@@ -114,6 +118,7 @@ export const Terminal: React.FC = () => {
             type: MessageType.ERROR,
             content: 'An unexpected error occurred.',
             timestamp: Date.now(),
+            cwd: pathAtCommand
           }]);
           setActiveCommand(null);
         } finally {
@@ -140,6 +145,8 @@ export const Terminal: React.FC = () => {
     }
   };
 
+  const displayPath = currentPath === '/users/guest' ? '~' : currentPath;
+
   return (
     <div 
       className="w-full h-full flex flex-col p-4 overflow-y-auto font-mono text-sm md:text-base" 
@@ -153,13 +160,10 @@ export const Terminal: React.FC = () => {
       </div>
 
       <div className="flex flex-row items-center mt-2">
-        {/* Hide prompt path during interactive input if desired, or keep it. 
-            Standard shells keep the prompt or show a continuation prompt like '> ' 
-            For simplicity, we keep the prompt or logic could be added to change it. */}
         {!activeCommand && (
           <>
             <span className="text-green-400 mr-1 font-bold hidden md:inline">{PROMPT_USER}@{PROMPT_HOST}</span>
-            <span className="text-slate-400 mr-2 hidden md:inline">:~{PROMPT_SYMBOL}</span>
+            <span className="text-slate-400 mr-2 hidden md:inline">:{displayPath}{PROMPT_SYMBOL}</span>
             <span className="text-green-400 mr-1 font-bold md:hidden">{PROMPT_SYMBOL}</span>
           </>
         )}
