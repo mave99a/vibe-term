@@ -11,19 +11,24 @@ class VirtualFileSystem {
       name: '',
       type: 'directory',
       children: {},
-      parent: null
+      parent: null,
+      permissions: 'drwxr-xr-x',
+      owner: 'root',
+      group: 'system',
+      size: 4096,
+      modifiedAt: new Date()
     };
     
     // Initialize namespaces
-    this.createDirectory(['users'], this.root);
-    this.createDirectory(['users', 'guest'], this.root);
-    this.createDirectory(['system'], this.root);
-    this.createDirectory(['dev'], this.root);
+    this.createDirectory(['users'], this.root, 'root', 'system');
+    this.createDirectory(['users', 'guest'], this.root, 'guest', 'users');
+    this.createDirectory(['system'], this.root, 'root', 'system');
+    this.createDirectory(['dev'], this.root, 'root', 'system');
 
     // Add some default files
-    this.createFile(['system', 'readme'], 'Welcome to WebTerm OS v1.0', this.root);
-    this.createFile(['users', 'guest', 'notes.txt'], 'Remember to buy milk.', this.root);
-    this.createFile(['dev', 'null'], '', this.root);
+    this.createFile(['system', 'readme'], 'Welcome to WebTerm OS v1.0', this.root, 'root', 'system');
+    this.createFile(['users', 'guest', 'notes.txt'], 'Remember to buy milk.', this.root, 'guest', 'users');
+    this.createFile(['dev', 'null'], '', this.root, 'root', 'system');
 
     // Set initial CWD to /users/guest
     this.currentNode = this.resolvePathNodes(['users', 'guest']) as DirectoryNode;
@@ -34,7 +39,7 @@ class VirtualFileSystem {
     return '/' + this.currentPath.join('/');
   }
 
-  public listDirectory(path?: string): string[] {
+  public getDirectoryChildren(path?: string): FileSystemNode[] {
     const targetNode = path ? this.resolvePathNodes(this.parsePath(path)) : this.currentNode;
     
     if (!targetNode || targetNode.type !== 'directory') {
@@ -42,10 +47,14 @@ class VirtualFileSystem {
     }
 
     const dir = targetNode as DirectoryNode;
-    return Object.keys(dir.children).map(name => {
-      const child = dir.children[name];
-      return child.type === 'directory' ? `${name}/` : name;
-    });
+    return Object.values(dir.children);
+  }
+
+  public listDirectory(path?: string): string[] {
+    // Deprecated in favor of getDirectoryChildren for richer data, 
+    // but kept for compatibility if needed by other simple commands.
+    const children = this.getDirectoryChildren(path);
+    return children.map(child => child.type === 'directory' ? `${child.name}/` : child.name);
   }
 
   public changeDirectory(path: string): void {
@@ -92,7 +101,7 @@ class VirtualFileSystem {
       throw new Error(`Directory already exists: ${dirName}`);
     }
 
-    this.createDirectory([dirName], parentDir);
+    this.createDirectory([dirName], parentDir, 'guest', 'users');
   }
 
   public removeDirectory(path: string): void {
@@ -129,10 +138,6 @@ class VirtualFileSystem {
     if (isAbsolute) {
       return parts;
     } else {
-      // Relative path resolution logic could be more complex, 
-      // but for now we assume relative to CWD unless it starts with /
-      // We will handle .. resolution during node traversal or here.
-      // Let's resolve .. here.
       const current = [...this.currentPath];
       for (const part of parts) {
         if (part === '.') continue;
@@ -168,7 +173,7 @@ class VirtualFileSystem {
     return path;
   }
 
-  private createDirectory(pathParts: string[], startNode: DirectoryNode) {
+  private createDirectory(pathParts: string[], startNode: DirectoryNode, owner = 'guest', group = 'users') {
     let current = startNode;
     for (const part of pathParts) {
       if (!current.children[part]) {
@@ -176,7 +181,12 @@ class VirtualFileSystem {
           name: part,
           type: 'directory',
           children: {},
-          parent: current
+          parent: current,
+          permissions: 'drwxr-xr-x',
+          owner,
+          group,
+          size: 4096,
+          modifiedAt: new Date()
         };
         current.children[part] = newDir;
       }
@@ -184,18 +194,23 @@ class VirtualFileSystem {
     }
   }
 
-  private createFile(pathParts: string[], content: string, startNode: DirectoryNode) {
+  private createFile(pathParts: string[], content: string, startNode: DirectoryNode, owner = 'guest', group = 'users') {
     const fileName = pathParts.pop();
     if (!fileName) return;
     
-    this.createDirectory(pathParts, startNode);
+    this.createDirectory(pathParts, startNode, owner, group);
     const dir = this.resolvePathNodes(pathParts, startNode) as DirectoryNode;
     
     const newFile: FileNode = {
       name: fileName,
       type: 'file',
       content: content,
-      parent: dir
+      parent: dir,
+      permissions: '-rw-r--r--',
+      owner,
+      group,
+      size: content.length,
+      modifiedAt: new Date()
     };
 
     dir.children[fileName] = newFile;
