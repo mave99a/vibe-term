@@ -1,3 +1,4 @@
+
 import { CommandRegistry } from '../types';
 import { echo } from './echo';
 import { date } from './date';
@@ -12,6 +13,7 @@ import { cat } from './cat';
 import { md } from './md';
 import { rd } from './rd';
 import { pwd } from './pwd';
+import { tree } from './tree';
 
 // Note: In a full build environment (Vite/Webpack), we could use import.meta.glob
 // to automatically scan and register commands. In this browser-native environment,
@@ -30,4 +32,5 @@ export const registry: CommandRegistry = {
   md,
   rd,
   pwd,
+  tree,
 };
