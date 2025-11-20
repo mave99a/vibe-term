@@ -1,0 +1,5 @@
+{
+  "name": "React Terminal UI",
+  "description": "A sleek, web-based command line interface simulation featuring a retro aesthetic, command history, and extensible command processing.",
+  "requestFramePermissions": []
+}
