@@ -83,7 +83,63 @@ class VirtualFileSystem {
       throw new Error(`Is a directory: ${path}`);
     }
 
-    return (target as FileNode).content;
+    const file = target as FileNode;
+    if (file.readHandler) {
+      return file.readHandler();
+    }
+
+    return file.content;
+  }
+
+  public writeFile(path: string, content: string): void {
+    const parts = this.parsePath(path);
+    const target = this.resolvePathNodes(parts);
+
+    // If file exists
+    if (target) {
+        if (target.type !== 'file') throw new Error(`Is a directory: ${path}`);
+        const file = target as FileNode;
+        
+        // Use handler if available (for devices)
+        if (file.writeHandler) {
+            file.writeHandler(content);
+            return;
+        }
+
+        // Normal file write
+        file.content = content;
+        file.size = content.length;
+        file.modifiedAt = new Date();
+        return;
+    }
+
+    // Create new file
+    const fileName = parts[parts.length - 1];
+    const dirParts = parts.slice(0, -1);
+    
+    // Resolve parent directory
+    const parentNode = this.resolvePathNodes(dirParts);
+    
+    if (!parentNode) {
+         throw new Error(`Path not found: ${dirParts.join('/')}`);
+    }
+    if (parentNode.type !== 'directory') {
+        throw new Error(`Not a directory: ${dirParts.join('/')}`);
+    }
+
+    const newFile: FileNode = {
+      name: fileName,
+      type: 'file',
+      content: content,
+      parent: parentNode as DirectoryNode,
+      permissions: '-rw-r--r--',
+      owner: 'guest',
+      group: 'users',
+      size: content.length,
+      modifiedAt: new Date()
+    };
+
+    (parentNode as DirectoryNode).children[fileName] = newFile;
   }
 
   public makeDirectory(path: string): void {
@@ -126,6 +182,40 @@ class VirtualFileSystem {
     if (parent) {
       delete parent.children[dirName];
     }
+  }
+
+  public createDevice(pathParts: string[], readHandler?: () => string, writeHandler?: (c: string) => void): void {
+      const fileName = pathParts[pathParts.length - 1];
+      const dirParts = pathParts.slice(0, -1);
+      
+      // Ensure directory structure exists
+      let current = this.root;
+      for (const part of dirParts) {
+          if (!current.children[part]) {
+             this.createDirectory([part], current, 'root', 'system');
+          }
+          const next = current.children[part];
+          if (next.type !== 'directory') {
+              return; 
+          }
+          current = next as DirectoryNode;
+      }
+
+      const deviceNode: FileNode = {
+          name: fileName,
+          type: 'file',
+          content: '',
+          parent: current,
+          permissions: 'crw-rw-rw-', // Character device permissions
+          owner: 'root',
+          group: 'system',
+          size: 0,
+          modifiedAt: new Date(),
+          readHandler,
+          writeHandler
+      };
+
+      current.children[fileName] = deviceNode;
   }
 
   // --- Helpers ---

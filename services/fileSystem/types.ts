@@ -15,6 +15,8 @@ export interface FileSystemNode {
 export interface FileNode extends FileSystemNode {
   type: 'file';
   content: string;
+  readHandler?: () => string;
+  writeHandler?: (content: string) => void;
 }
 
 export interface DirectoryNode extends FileSystemNode {

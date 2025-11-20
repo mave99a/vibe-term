@@ -19,6 +19,12 @@ export const Terminal: React.FC = () => {
     }];
   });
   
+  // Use ref to access history inside callbacks/VFS handlers
+  const historyRef = useRef<TerminalMessage[]>([]);
+  useEffect(() => {
+      historyRef.current = history;
+  }, [history]);
+  
   const [input, setInput] = useState('');
   const [commandHistory, setCommandHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
@@ -32,6 +38,36 @@ export const Terminal: React.FC = () => {
   const inputRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Register /dev/tty device
+  useEffect(() => {
+    fileSystem.createDevice(
+        ['dev', 'tty'], 
+        // Read handler: returns history as string
+        () => {
+            return historyRef.current.map(msg => {
+                if (msg.type === MessageType.COMMAND) {
+                    return `$ ${msg.content}`;
+                }
+                if (typeof msg.content === 'string') {
+                    return msg.content;
+                }
+                return '[Object]';
+            }).join('\n');
+        },
+        // Write handler: adds to terminal output
+        (content: string) => {
+            const newMessage: TerminalMessage = {
+                id: Date.now().toString() + '-dev-tty',
+                type: MessageType.OUTPUT,
+                content: content,
+                timestamp: Date.now(),
+                cwd: fileSystem.getCwd()
+            };
+            setHistory(prev => [...prev, newMessage]);
+        }
+    );
+  }, []);
 
   // Auto-scroll to bottom when history changes
   useEffect(() => {
@@ -93,15 +129,17 @@ export const Terminal: React.FC = () => {
             result = await processCommand(cmd);
           }
           
-          const responseMessage: TerminalMessage = {
-            id: Date.now().toString() + '-res',
-            type: result.type || MessageType.OUTPUT,
-            content: result.output,
-            timestamp: Date.now(),
-            cwd: fileSystem.getCwd(), // Not strictly necessary for output but good for consistency
-          };
-
-          setHistory((prev) => [...prev, responseMessage]);
+          // Only add output if there is output (redirection might suppress it)
+          if (result.output !== '') {
+              const responseMessage: TerminalMessage = {
+                id: Date.now().toString() + '-res',
+                type: result.type || MessageType.OUTPUT,
+                content: result.output,
+                timestamp: Date.now(),
+                cwd: fileSystem.getCwd(), // Not strictly necessary for output but good for consistency
+              };
+              setHistory((prev) => [...prev, responseMessage]);
+          }
           
           if (result.nextAction) {
             setActiveCommand(() => result.nextAction);
