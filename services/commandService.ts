@@ -11,9 +11,17 @@ export const processCommand = async (input: string): Promise<CommandResult> => {
   let args = parts.slice(1);
   const cmdName = parts[0];
   
-  // Check for redirection '>'
+  // Check for redirection '>>' or '>'
   let redirectPath: string | null = null;
-  const redirectIndex = args.indexOf('>');
+  let isAppend = false;
+  
+  // We must check for >> before > because > is a substring of >>
+  let redirectIndex = args.indexOf('>>');
+  if (redirectIndex !== -1) {
+      isAppend = true;
+  } else {
+      redirectIndex = args.indexOf('>');
+  }
   
   if (redirectIndex !== -1) {
       if (redirectIndex < args.length - 1) {
@@ -22,7 +30,7 @@ export const processCommand = async (input: string): Promise<CommandResult> => {
           args = args.slice(0, redirectIndex);
       } else {
           return {
-              output: 'Syntax error: expected filename after >',
+              output: `Syntax error: expected filename after ${isAppend ? '>>' : '>'}`,
               type: MessageType.ERROR
           };
       }
@@ -44,7 +52,18 @@ export const processCommand = async (input: string): Promise<CommandResult> => {
         // If command produced output, write it to file instead of returning it
         if (result.output && typeof result.output === 'string') {
             try {
-                fileSystem.writeFile(redirectPath, result.output);
+                // Ensure text ends with newline for better file concatenation behavior
+                let contentToWrite = result.output;
+                if (!contentToWrite.endsWith('\n')) {
+                    contentToWrite += '\n';
+                }
+
+                if (isAppend) {
+                    fileSystem.appendFile(redirectPath, contentToWrite);
+                } else {
+                    fileSystem.writeFile(redirectPath, contentToWrite);
+                }
+                
                 return {
                     output: '', // Output consumed by redirection
                     type: MessageType.SYSTEM 

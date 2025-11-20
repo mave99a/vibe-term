@@ -142,6 +142,30 @@ class VirtualFileSystem {
     (parentNode as DirectoryNode).children[fileName] = newFile;
   }
 
+  public appendFile(path: string, content: string): void {
+    const parts = this.parsePath(path);
+    const target = this.resolvePathNodes(parts);
+
+    if (target) {
+        if (target.type !== 'file') throw new Error(`Is a directory: ${path}`);
+        const file = target as FileNode;
+        
+        if (file.writeHandler) {
+            // For devices, append acts as write
+            file.writeHandler(content);
+            return;
+        }
+
+        file.content += content;
+        file.size = file.content.length;
+        file.modifiedAt = new Date();
+        return;
+    }
+    
+    // If file doesn't exist, create it
+    this.writeFile(path, content);
+  }
+
   public makeDirectory(path: string): void {
     const parts = this.parsePath(path);
     const dirName = parts.pop();
