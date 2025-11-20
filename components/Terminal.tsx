@@ -1,22 +1,29 @@
+
 import React, { useState, useRef, useEffect, KeyboardEvent, ChangeEvent } from 'react';
-import { TerminalMessage, MessageType } from '../types';
-import { INITIAL_WELCOME_MESSAGE, PROMPT_HOST, PROMPT_USER, PROMPT_SYMBOL } from '../constants';
+import { TerminalMessage, MessageType, CommandResult } from '../types';
+import { INITIAL_WELCOME_MESSAGE, PROMPT_HOST, PROMPT_USER, PROMPT_SYMBOL, STORAGE_KEY_MOTD } from '../constants';
 import { TerminalOutput } from './TerminalOutput';
 import { processCommand } from '../services/commandService';
 
 export const Terminal: React.FC = () => {
-  const [history, setHistory] = useState<TerminalMessage[]>([
-    {
+  const [history, setHistory] = useState<TerminalMessage[]>(() => {
+    // Initialize with stored MOTD if available
+    const storedMotd = localStorage.getItem(STORAGE_KEY_MOTD);
+    return [{
       id: 'init',
       type: MessageType.SYSTEM,
-      content: INITIAL_WELCOME_MESSAGE,
+      content: storedMotd || INITIAL_WELCOME_MESSAGE,
       timestamp: Date.now(),
-    },
-  ]);
+    }];
+  });
+  
   const [input, setInput] = useState('');
   const [commandHistory, setCommandHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [isProcessing, setIsProcessing] = useState(false);
+  
+  // Holds the continuation function for interactive commands
+  const [activeCommand, setActiveCommand] = useState<((input: string) => Promise<CommandResult> | CommandResult) | null>(null);
   
   const inputRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -42,11 +49,11 @@ export const Terminal: React.FC = () => {
     if (e.key === 'Enter' && !isProcessing) {
       const cmd = input.trim();
       
-      // Add command to UI history
+      // Add user input to UI history
       const commandMessage: TerminalMessage = {
         id: Date.now().toString() + '-cmd',
         type: MessageType.COMMAND,
-        content: input,
+        content: input, // Preserve exact input (spaces, etc)
         timestamp: Date.now(),
       };
 
@@ -54,10 +61,11 @@ export const Terminal: React.FC = () => {
       setInput('');
       setHistoryIndex(-1);
 
-      if (cmd) {
-        setCommandHistory((prev) => [cmd, ...prev]);
+      if (cmd || activeCommand) { // Process if there is input OR if we are waiting for input (even empty)
+        setCommandHistory((prev) => [input, ...prev]);
         
-        if (cmd.toLowerCase() === 'clear') {
+        // Special case for clear command, ONLY if not in interactive mode
+        if (!activeCommand && cmd.toLowerCase() === 'clear') {
             // Slight delay to show the command was typed before clearing
             setTimeout(() => {
                 setHistory([]);
@@ -67,21 +75,50 @@ export const Terminal: React.FC = () => {
 
         setIsProcessing(true);
         
-        // Simulate processing delay for realism
-        // In a real app with Gemini, this await would be the API call
-        await new Promise(resolve => setTimeout(resolve, 50)); 
-        
-        const result = await processCommand(cmd);
-        
-        const responseMessage: TerminalMessage = {
-          id: Date.now().toString() + '-res',
-          type: result.type || MessageType.OUTPUT,
-          content: result.output,
-          timestamp: Date.now(),
-        };
+        try {
+          // Simulate processing delay for realism
+          await new Promise(resolve => setTimeout(resolve, 50)); 
+          
+          let result: CommandResult;
 
-        setHistory((prev) => [...prev, responseMessage]);
-        setIsProcessing(false);
+          if (activeCommand) {
+            // If we are in interactive mode, pass input to the active handler
+            result = await activeCommand(input);
+          } else {
+            // Otherwise, process as a standard command
+            result = await processCommand(cmd);
+          }
+          
+          const responseMessage: TerminalMessage = {
+            id: Date.now().toString() + '-res',
+            type: result.type || MessageType.OUTPUT,
+            content: result.output,
+            timestamp: Date.now(),
+          };
+
+          setHistory((prev) => [...prev, responseMessage]);
+          
+          // Update the active command state based on the result
+          if (result.nextAction) {
+            // The command wants more input
+            const nextAction = result.nextAction;
+            setActiveCommand(() => nextAction);
+          } else {
+            // The command chain is finished
+            setActiveCommand(null);
+          }
+
+        } catch (error) {
+          setHistory((prev) => [...prev, {
+            id: Date.now().toString() + '-err',
+            type: MessageType.ERROR,
+            content: 'An unexpected error occurred.',
+            timestamp: Date.now(),
+          }]);
+          setActiveCommand(null);
+        } finally {
+          setIsProcessing(false);
+        }
       }
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
@@ -116,13 +153,21 @@ export const Terminal: React.FC = () => {
       </div>
 
       <div className="flex flex-row items-center mt-2">
-        <span className="text-green-400 mr-1 font-bold hidden md:inline">{PROMPT_USER}@{PROMPT_HOST}</span>
-        <span className="text-slate-400 mr-2 hidden md:inline">:~{PROMPT_SYMBOL}</span>
-        <span className="text-green-400 mr-1 font-bold md:hidden">{PROMPT_SYMBOL}</span>
+        {/* Hide prompt path during interactive input if desired, or keep it. 
+            Standard shells keep the prompt or show a continuation prompt like '> ' 
+            For simplicity, we keep the prompt or logic could be added to change it. */}
+        {!activeCommand && (
+          <>
+            <span className="text-green-400 mr-1 font-bold hidden md:inline">{PROMPT_USER}@{PROMPT_HOST}</span>
+            <span className="text-slate-400 mr-2 hidden md:inline">:~{PROMPT_SYMBOL}</span>
+            <span className="text-green-400 mr-1 font-bold md:hidden">{PROMPT_SYMBOL}</span>
+          </>
+        )}
+        {activeCommand && (
+          <span className="text-yellow-400 mr-2 font-bold">{'>'}</span>
+        )}
         
         <div className="relative flex-grow">
-          {/* The visible input mirroring the hidden input for styling if needed, 
-              but standard input with no outline works best for accessibility */}
           <input
             ref={inputRef}
             type="text"
@@ -134,7 +179,6 @@ export const Terminal: React.FC = () => {
             spellCheck="false"
             className="w-full bg-transparent border-none outline-none text-slate-100 placeholder-slate-700 caret-transparent"
           />
-          {/* Custom Blinking Cursor Block */}
           <div 
             className="absolute top-0 left-0 pointer-events-none whitespace-pre select-none flex"
             aria-hidden="true"

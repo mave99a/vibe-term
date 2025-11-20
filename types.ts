@@ -1,3 +1,4 @@
+
 import React from 'react';
 
 export enum MessageType {
@@ -17,6 +18,7 @@ export interface TerminalMessage {
 export interface CommandResult {
   output: React.ReactNode;
   type?: MessageType;
+  nextAction?: (input: string) => Promise<CommandResult> | CommandResult;
 }
 
 export interface CommandContext {
